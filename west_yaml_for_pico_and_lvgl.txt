@@ -1,0 +1,30 @@
+# yaml file for template - https://github.com/zephyrproject-rtos/example-application
+# for rpi_pico and lvgl
+# Copyright (c) 2021 Nordic Semiconductor ASA
+# SPDX-License-Identifier: Apache-2.0
+
+manifest:
+  self:
+    west-commands: scripts/west-commands.yml
+
+  remotes:
+    - name: zephyrproject-rtos
+      url-base: https://github.com/zephyrproject-rtos
+    - name: lvgl
+      url-base: https://github.com/lvgl
+
+  projects:
+    - name: zephyr
+      remote: zephyrproject-rtos
+      revision: main
+      import:
+        # By using name-allowlist we can clone only the modules that are
+        # strictly needed by the application.
+        name-allowlist:
+          - cmsis_6    # required by the ARM port for Cortex-M
+          - hal_rpi_pico
+          - cmsis
+    - name: lvgl
+      url: https://github.com/lvgl/lvgl
+      revision: v9.6.0
+      path: modules/lib/gui/lvgl
