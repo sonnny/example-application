@@ -1,0 +1,191 @@
+
+youtube -- https://www.youtube.com/watch?v=amH4qGVp8rY
+
+replace greater than with GT
+replace less than with LT
+all the #include are enclose by LT and GT
+I'm saving space for youtube limit less than 5k description
+youtube don't like angle brackets
+
+zephyr template -- https://github.com/zephyrproject-rtos/example-application
+
+files below:
+app/CMakeLists.txt -- partial
+app/prj.conf
+app/src/main.c
+app/app.overlay
+dts/bindings/motor/motor.yaml
+include/app/drivers/motor.h
+drivers/motor/Kconfig
+drivers/motor/motor.c
+drivers/CMakeLists.txt
+drivers/Kconfig
+drivers/motor/CMakeLists.txt
+
+/* app/CMakeLists.txt */
+cmake_minimum_required(VERSION 3.13.1)
+set(OPENOCD /usr/local/bin/openocd)
+set(OPENOCD_DEFAULT_PATH /home/sonny/pico/openocd)
+find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
+project(app LANGUAGES C)
+target_sources(app PRIVATE src/main.c)
+ 
+# prj.conf
+CONFIG_MOTOR=y
+CONFIG_I2C=y
+
+/* app/src/main.c */
+cytron md13s - https://www.cytron.io/p-13amp-6v-30v-dc-motor-driver
+i2c digital potentiometer - https://electricdollarstore.com/pot.html
+i2c 2 seven segment led - https://electricdollarstore.com/dig2.html
+
+#include zephyr/kernel.h
+#include zephyr/device.h
+#include zephyr/drivers/i2c.h
+#include app/drivers/motor.h
+
+#define SEVEN_SEGMENT_ADDRESS 0x16
+#define DIGIPOT_ADDRESS       0x28
+#define DIGIPOT_REGISTER       100
+
+const struct device *motor = DEVICE_DT_GET(DT_NODELABEL(mymotor));
+const struct device *i2c_dev = DEVICE_DT_GET(DT_NODELABEL(i2c1));
+
+int main(void){
+
+int ret;
+uint8_t buf[2] = {0x02, 0x02};
+uint8_t read_buf[1];
+const struct motor_api *mtr_api = (const struct motor_api *)motor-GTapi;
+mtr_api-GTset_speed(motor, 0);
+mtr_api-GTrotate_cw(motor);
+  
+while(true){
+  ret = i2c_reg_read_byte(i2c_dev, DIGIPOT_ADDRESS, DIGIPOT_REGISTER, read_buf);
+  mtr_api-GTset_speed(motor, read_buf[0]);
+  buf[1] = read_buf[0];
+  ret = i2c_write(i2c_dev, buf, sizeof(buf), SEVEN_SEGMENT_ADDRESS);
+  k_msleep(100);}
+return 0;}
+
+/* app/app.overlay */
+/ {
+  mymotor: mymotor{
+    compatible = "motor";
+    pwms = LT&pwm 3 1000 PWM_POLARITY_NORMALGT;
+    gpios = LT&gpio0 2 GPIO_ACTIVE_HIGHGT;
+  };
+};
+
+&pwm {
+  status = "okay";
+  pinctrl-0 = LT&pwm_defaultGT;
+  pinctrl-names = "default";
+};
+&pinctrl {
+  pwm_default: pwm_default {
+    group1 {
+      pinmux = LTPWM_1B_P3GT;
+    };
+  };
+};
+
+# dts/bindings/motor/motor.yaml
+description: motor controller phase enable
+compatible: "motor"
+include: "base.yaml"
+properties:
+  gpios:
+    type: phandle-array
+    required: true
+    description: phase pin
+
+  pwms:
+    type: phandle-array
+    required: true
+    description: use to vary motor speed
+
+/* include/app/drivers/motor.h */
+#ifndef __ZEPHYR_MOTOR_H__
+#define __ZEPHYR_MOTOR_H__
+
+#include zephyr/drivers/gpio.h
+#include zephyr/drivers/pwm.h
+
+struct motor_api {
+int (*rotate_cw)(const struct device *dev);
+int (*rotate_ccw)(const struct device *dev);
+int (*set_speed)(const struct device *dev, uint8_t percent);};
+
+struct motor_config {
+struct pwm_dt_spec enable;
+struct gpio_dt_spec phase;
+uint32_t id;};
+
+#endif
+
+# drivers/motor/Kconfig
+config MOTOR
+  bool "motor driver"
+  default y
+  depends on DT_HAS_MOTOR_ENABLED
+  select GPIO
+  select PWM
+  help
+    enable motor driver
+        
+/* drivers/motor/motor.c */
+
+#define DT_DRV_COMPAT motor
+#include app/drivers/motor.h
+
+static int motor_clockwise(const struct device *dev){
+const struct motor_config *cfg = (const struct motor_config *)dev-GTconfig;
+gpio_pin_set_dt(&cfg-GTphase, 0);
+return 0;}
+
+same as function above except
+gpio_pin_set_dt(&cfg-GTphase, 1);
+  
+static int motor_set_speed(const struct device *dev, uint8_t percent){
+const struct motor_config *cfg = (const struct motor_config *)dev-GTconfig;
+uint32_t pulse = cfg-GTenable.period / 100 * percent;
+pwm_set_dt(&cfg-GTenable, cfg-GTenable.period, pulse);
+return 0;}
+
+static int motor_init(const struct device *dev){
+const struct motor_config *cfg = (const struct motor_config *)dev-GTconfig; 
+pwm_set_dt(&cfg-GTenable, cfg-GTenable.period, 0);
+gpio_pin_configure_dt(&cfg-GTphase, GPIO_OUTPUT_INACTIVE);
+return 0;}
+
+static const struct motor_api motor_api_funcs = {
+.rotate_cw = motor_clockwise,
+.rotate_ccw = motor_counter_clockwise,
+.set_speed  = motor_set_speed, };
+
+#define MOTOR_DEFINE(inst) \
+  static const struct motor_config motor_config_##inst = { \
+    .enable = PWM_DT_SPEC_INST_GET_BY_IDX(inst, 0), \
+    .phase  = GPIO_DT_SPEC_INST_GET_BY_IDX(inst, gpios,0), \
+    .id     = inst }; \
+ \
+  DEVICE_DT_INST_DEFINE(inst, motor_init, NULL, NULL, \
+    &motor_config_##inst, POST_KERNEL, \
+    CONFIG_PWM_INIT_PRIORITY, &motor_api_funcs); \
+DT_INST_FOREACH_STATUS_OKAY(MOTOR_DEFINE)
+
+/* drivers/CMakeLists.txt */
+add_subdirectory_ifdef(CONFIG_MOTOR motor)
+
+# drivers/Kconfig
+menu "Drivers"
+rsource "motor/Kconfig"
+endmenu
+
+/* drivers/motor/CMakeLists.txt */
+if(CONFIG_MOTOR)
+  zephyr_include_directories(.)
+  zephyr_library_sources(motor.c)
+endif()
+
